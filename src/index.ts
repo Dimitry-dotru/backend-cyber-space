@@ -59,7 +59,7 @@ app.use('/steam', createProxyMiddleware({
   target: "https://api.steampowered.com",
   changeOrigin: true,
   pathRewrite: {
-    '^/steam': '', // Убираем '/api' из пути
+    '^/steam': '', // Убираем '/steam' из пути
   }
 }));
 
