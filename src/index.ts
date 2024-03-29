@@ -1,15 +1,23 @@
-const express = require('express');
-const passport = require('passport');
-const session = require('express-session');
-const passportSteam = require('passport-steam');
+import express from "express";
+import passport from "passport";
+import session from "express-session";
+import passportSteam from "passport-steam";
+import { createProxyMiddleware } from "http-proxy-middleware";
+import dotenv from "dotenv";
+dotenv.config({path: ".env.local"});
+
 const SteamStrategy = passportSteam.Strategy;
-const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
 
-const port = 7069;
-const backendServer = `http://localhost:${port}`;
-const frontendServer = "http://localhost:3000";
-const apiKey = "BDE51B80D4D4E0257B60610C0B3FE6F6";
+
+declare global {
+  namespace Express {
+    // добавляем в интерфейс Request поле user
+    interface Request {
+      user?: any;
+    }
+  }
+}
 
 passport.serializeUser((user, done) => {
 	done(null, user);
@@ -22,9 +30,9 @@ passport.deserializeUser((user, done) => {
 passport.use(
   new SteamStrategy(
     {
-      returnURL: backendServer + "/api/auth/steam/return",
-      realm: backendServer + "/",
-      apiKey: apiKey,
+      returnURL: process.env.backendServer + "/api/auth/steam/return",
+      realm: process.env.backendServer + "/",
+      apiKey: process.env.apiKey,
     },
     function (identifier, profile, done) {
       process.nextTick(function () {
@@ -63,8 +71,8 @@ app.use('/steam', createProxyMiddleware({
   }
 }));
 
-app.listen(port, () => {
-	console.log('Listening, port ' + port);
+app.listen(process.env.port, () => {
+	console.log('Listening, port ' + process.env.port);
 });
 
 app.get('/', (req, res) => {
@@ -79,6 +87,6 @@ app.get('/api/auth/steam', passport.authenticate('steam', {failureRedirect: '/'}
 
 app.get('/api/auth/steam/return', passport.authenticate('steam', {failureRedirect: '/'}), function (req, res) {
   const steamId = req.user.id;
-  const redirectUrl = `${frontendServer}/?steamId=${steamId}`;
+  const redirectUrl = `${process.env.frontendServer}/?steamId=${steamId}`;
   res.redirect(redirectUrl);
 });
