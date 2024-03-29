@@ -3,6 +3,7 @@ const passport = require('passport');
 const session = require('express-session');
 const passportSteam = require('passport-steam');
 const SteamStrategy = passportSteam.Strategy;
+const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
 const port = 7069;
 const backendServer = `http://localhost:${port}`;
@@ -34,6 +35,19 @@ app.use(session({
 }));
 app.use(passport.initialize());
 app.use(passport.session());
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    next();
+});
+app.use('/steam', createProxyMiddleware({
+    target: "https://api.steampowered.com",
+    changeOrigin: true,
+    pathRewrite: {
+        '^/steam': '', // Убираем '/api' из пути
+    }
+}));
 app.listen(port, () => {
     console.log('Listening, port ' + port);
 });
@@ -48,6 +62,4 @@ app.get('/api/auth/steam/return', passport.authenticate('steam', { failureRedire
     const steamId = req.user.id;
     const redirectUrl = `${frontendServer}/?steamId=${steamId}`;
     res.redirect(redirectUrl);
-    // res.redirect("/")
-    // res.redirect('http://localhost:300?steamId=')
 });
