@@ -16,12 +16,12 @@ app.get(
 app.get("/", (req, res) => {
   const sessionID = req.query.sessionID;
   const userBySessionID = req.sessionStore["sessions"][sessionID];
-  console.log(userBySessionID);
+  
   if (!userBySessionID) {
     res.sendStatus(404);
     return;
   }
-  const user = JSON.stringify(userBySessionID)["user"]["_json"];
+  const user = JSON.parse(userBySessionID)["user"]["_json"];
   res.send(JSON.stringify(user));
 });
 
