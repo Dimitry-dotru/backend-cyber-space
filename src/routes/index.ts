@@ -1,15 +1,8 @@
-import { app, passport } from "../index";
+import { app, passport} from "../index";
 import config from "../config/index";
 
 app.listen(config.serverPort, () => {
-  console.log("Listening, port " + config.serverPort, config.serverPort);
-});
-
-const users = [];
-app.get("/", (req, res) => {
-  const sessionKey = req.sessionID;
-  const user = users[sessionKey] ? users[sessionKey] : [];
-  res.send(user);
+  console.log("Listening, port " + config.serverPort);
 });
 
 app.get(
@@ -20,13 +13,28 @@ app.get(
   }
 );
 
+app.get("/", (req, res) => {
+  const sessionID = req.query.sessionID;
+  const userBySessionID = req.sessionStore["sessions"][sessionID];
+  console.log(userBySessionID);
+  if (!userBySessionID) {
+    res.sendStatus(404);
+    return;
+  }
+  const user = JSON.stringify(userBySessionID)["user"]["_json"];
+  res.send(JSON.stringify(user));
+});
+
 app.get(
   "/api/auth/steam/return",
   passport.authenticate("steam", { failureRedirect: "/" }),
-  function (req, res) {
-    const steamId = req.user.id;
-    users[req.sessionID] = req.user;
-    const redirectUrl = `${config.frontendServer}`;
+  (req, res) => {
+    const redirectUrl = `${config.frontendServer}?sessionID=${req.sessionID}`;
+    req.session.user = req.user;
     res.redirect(redirectUrl);
   }
 );
+
+app.post("/logout", (req, res) => {
+  // deleting of session
+});

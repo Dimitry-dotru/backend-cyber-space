@@ -2,22 +2,38 @@ import express from "express";
 import passport from "passport";
 import session from "express-session";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import cookieParser from "cookie-parser";
+import bodyParser from "body-parser";
 
 const app = express();
+const secret = "MySecretFrase";
 
 declare global {
   namespace Express {
-    // добавляем в интерфейс Request поле user, sessionID
     interface Request {
-      user?: any;
-      sessionID?: any;
+      // user?: any;
+      // sessionStore?: {
+      //   sessions: any;
+      // };
     }
   }
 }
 
+declare module "express-session" {
+  interface SessionData {
+    user: any;
+    sessions: any;
+  }
+}
+
+// interface CustomMemoryStore extends MemoryStore {
+//   sessions: { [sid: string]: any };
+// }
+
+// use session
 app.use(
   session({
-    secret: "MySecretFraze",
+    secret: secret,
     saveUninitialized: true,
     resave: false,
     cookie: {
@@ -25,7 +41,9 @@ app.use(
     },
   })
 );
-
+app.use(bodyParser.json());
+app.use(cookieParser(secret));
+// use headers
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -35,7 +53,7 @@ app.use((req, res, next) => {
   );
   next();
 });
-
+// use proxy server
 app.use(
   "/steam",
   createProxyMiddleware({
@@ -47,6 +65,6 @@ app.use(
   })
 );
 
+export { app, passport };
 import "./config/passport";
 import "./routes/index";
-export { app, passport };
