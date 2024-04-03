@@ -34,10 +34,11 @@ declare module "express-session" {
 app.use(
   session({
     secret: secret,
-    saveUninitialized: true,
-    resave: false,
+    saveUninitialized: false,
+    resave: true,
     cookie: {
-      maxAge: 3600000,
+      // maxAge: 3600000,
+      maxAge: 10000,
     },
   })
 );

@@ -36,5 +36,13 @@ app.get(
 );
 
 app.post("/logout", (req, res) => {
-  // deleting of session
+  try {
+    const sessionID = req.query.sessionID;
+    delete req.sessionStore["sessions"][sessionID];
+    res.sendStatus(200);
+  }
+  catch(e) {
+    res.statusMessage = "Error deleting session!";
+    res.sendStatus(400);
+  }
 });

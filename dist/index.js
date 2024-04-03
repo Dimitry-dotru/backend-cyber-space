@@ -20,10 +20,11 @@ const secret = "MySecretFrase";
 // use session
 app.use((0, express_session_1.default)({
     secret: secret,
-    saveUninitialized: true,
-    resave: false,
+    saveUninitialized: false,
+    resave: true,
     cookie: {
-        maxAge: 3600000,
+        // maxAge: 3600000,
+        maxAge: 10000,
     },
 }));
 app.use(body_parser_1.default.json());
