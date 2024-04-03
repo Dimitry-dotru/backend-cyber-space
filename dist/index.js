@@ -23,8 +23,7 @@ app.use((0, express_session_1.default)({
     saveUninitialized: false,
     resave: true,
     cookie: {
-        // maxAge: 3600000,
-        maxAge: 10000,
+        maxAge: 3600000,
     },
 }));
 app.use(body_parser_1.default.json());

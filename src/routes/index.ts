@@ -1,5 +1,44 @@
-import { app, passport} from "../index";
+import { app, passport } from "../index";
 import config from "../config/index";
+import crypto from "crypto";
+
+const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: {
+    type: "pkcs1",
+    format: "pem",
+  },
+  privateKeyEncoding: {
+    type: "pkcs1",
+    format: "pem",
+  },
+});
+
+const encriptString = (str: string) => {
+  const encriptedString = crypto.publicEncrypt(
+    {
+      key: publicKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: "sha256",
+    },
+    Buffer.from(str, "utf8")
+  );
+  return encriptedString.toString("hex");
+};
+
+const decriptString = (str: string) => {
+  const encriptedString = Buffer.from(str, "hex");
+  const decryptedData = crypto.privateDecrypt(
+    {
+      key: privateKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: "sha256",
+    },
+    encriptedString
+  );
+
+  return decryptedData.toString("utf8");
+};
 
 app.listen(config.serverPort, () => {
   console.log("Listening, port " + config.serverPort);
@@ -14,9 +53,9 @@ app.get(
 );
 
 app.get("/", (req, res) => {
-  const sessionID = req.query.sessionID;
+  const sessionID = decriptString(req.query.sessionID as string);
   const userBySessionID = req.sessionStore["sessions"][sessionID];
-  
+
   if (!userBySessionID) {
     res.sendStatus(404);
     return;
@@ -29,7 +68,8 @@ app.get(
   "/api/auth/steam/return",
   passport.authenticate("steam", { failureRedirect: "/" }),
   (req, res) => {
-    const redirectUrl = `${config.frontendServer}?sessionID=${req.sessionID}`;
+    const encriptedID = encriptString(req.sessionID);
+    const redirectUrl = `${config.frontendServer}?sessionID=${encriptedID}`;
     req.session.user = req.user;
     res.redirect(redirectUrl);
   }
@@ -37,11 +77,10 @@ app.get(
 
 app.post("/logout", (req, res) => {
   try {
-    const sessionID = req.query.sessionID;
+    const sessionID = decriptString(req.query.sessionID as string);
     delete req.sessionStore["sessions"][sessionID];
     res.sendStatus(200);
-  }
-  catch(e) {
+  } catch (e) {
     res.statusMessage = "Error deleting session!";
     res.sendStatus(400);
   }
