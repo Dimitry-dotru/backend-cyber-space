@@ -1,6 +1,7 @@
 import { app, passport } from "../index";
 import config from "../config/index";
 import crypto from "crypto";
+import mysql from "mysql2/promise";
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -40,8 +41,8 @@ const decriptString = (str: string) => {
   return decryptedData.toString("utf8");
 };
 
-app.listen(config.serverPort, () => {
-  console.log("Listening, port " + config.serverPort);
+app.listen(config.serverPort, async () => {
+  console.log("Listening, port " + config.serverPort);  
 });
 
 app.get(
@@ -55,6 +56,16 @@ app.get(
 app.get("/", (req, res) => {
   const sessionID = decriptString(req.query.sessionID as string);
   const userBySessionID = req.sessionStore["sessions"][sessionID];
+
+  // здесь в бд нужно занести id сессии пользователя, и его steamID 
+
+  const connection = mysql.createConnection({
+    host: "localhost",
+    user: "root",
+    database: "users",
+    port: 5800,
+    password: "tbQn8Z#458+!_XM",
+  });
 
   if (!userBySessionID) {
     res.sendStatus(404);

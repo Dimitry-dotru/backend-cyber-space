@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.ts",
   "scripts": {
-    "start": "nodemon --ext ts --exec npm run build",
+    "dev": "nodemon --ext ts --exec npm run build",
     "build": "ts-node src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -24,6 +24,7 @@
     "express-session": "^1.18.0",
     "http-proxy-middleware": "^2.0.6",
     "mongodb": "^6.5.0",
+    "mysql2": "^3.9.6",
     "passport": "^0.7.0",
     "passport-steam": "^1.0.18"
   },
