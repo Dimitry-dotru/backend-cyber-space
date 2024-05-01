@@ -1,50 +1,83 @@
 import { app, passport } from "../index";
+import { encriptString, decriptString } from "../utils";
 import config from "../config/index";
-import crypto from "crypto";
-import mysql from "mysql2/promise";
+import mongoose from "mongoose";
+import fs from "fs";
 
-const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
-  modulusLength: 2048,
-  publicKeyEncoding: {
-    type: "pkcs1",
-    format: "pem",
+const MONGO_URL = process.env.mongoURL;
+const BACKEND_IP = "http://localhost";
+
+mongoose
+  .connect(MONGO_URL)
+  .then(() => {
+    console.log("DB connected.");
+    app.listen(config.serverPort, async () => {
+      console.log("Listening, port " + config.serverPort);
+    });
+  })
+  .catch((err) => console.error(err));
+
+const userSchema = new mongoose.Schema({
+  user: {
+    avatar: String,
+    avatarfull: String,
+    avatarhash: String,
+    avatarmedium: String,
+    communityvisibilitystate: Number,
+    lastlogoff: Number,
+    loccountrycode: String,
+    locstatecode: String,
+    personaname: String,
+    personastate: Number,
+    personastateflags: Number,
+    primaryclanid: String,
+    profilestate: Number,
+    profileurl: String,
+    steamid: String,
+    timecreated: Number,
+
+    // my fields:
+    userbanner: String,
+    userbgpattern: String,
   },
-  privateKeyEncoding: {
-    type: "pkcs1",
-    format: "pem",
-  },
+  sessionID: String,
 });
 
-const encriptString = (str: string) => {
-  const encriptedString = crypto.publicEncrypt(
-    {
-      key: publicKey,
-      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-      oaepHash: "sha256",
-    },
-    Buffer.from(str, "utf8")
-  );
-  return encriptedString.toString("hex");
+// создание папки пользователя, по steamid в users-data
+const createFolder = (steamid: string): void => {
+  fs.access("../users-data", (err) => {
+    if (err) {
+      console.log("No folder, creating it...");
+    } else {
+      console.log("We have folder!");
+    }
+  });
+  // console.log(__dirname);
 };
 
-const decriptString = (str: string) => {
-  const encriptedString = Buffer.from(str, "hex");
-  const decryptedData = crypto.privateDecrypt(
-    {
-      key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-      oaepHash: "sha256",
-    },
-    encriptedString
-  );
+//! поиск по своему полю какому-то
+/**
+ *
+ * userModel.findOne({ "user.steamid": steamIdToSearch })
+  .then((user) => {
+    if (user) {
+      console.log("Найден пользователь:", user);
+    } else {
+      console.log("Пользователь с указанным steamid не найден.");
+    }
+  })
+  .catch((error) => {
+    console.error("Ошибка при поиске пользователя:", error);
+  });
+ * 
+ * 
+ * 
+ * 
+ */
 
-  return decryptedData.toString("utf8");
-};
+const userModel = mongoose.model("users", userSchema);
 
-app.listen(config.serverPort, async () => {
-  console.log("Listening, port " + config.serverPort);  
-});
-
+// тут авторизация в стим
 app.get(
   "/api/auth/steam",
   passport.authenticate("steam", { failureRedirect: "/" }),
@@ -53,35 +86,104 @@ app.get(
   }
 );
 
-app.get("/", (req, res) => {
-  const sessionID = decriptString(req.query.sessionID as string);
-  const userBySessionID = req.sessionStore["sessions"][sessionID];
+/**
+ * ! пример того как можно сохранять пользователя, удаляя повторяющуюся запись
+ * 
+ * app.get("/users", async (req, res) => {
+  const allUsers = await userModel.find();
 
-  // здесь в бд нужно занести id сессии пользователя, и его steamID 
-
-  const connection = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    database: "users",
-    port: 5800,
-    password: "tbQn8Z#458+!_XM",
+  const newUser = new userModel({
+    connectHash: "38745tgf8yegrfwu4eorhifj",
+    steamid: "1234567890",
   });
 
-  if (!userBySessionID) {
+  await allUsers.forEach(async (user) => {
+    if (user.connectHash === newUser.connectHash) {
+      console.log("deleting...");
+      await userModel.findByIdAndDelete(user._id);
+    }
+  })
+
+  await newUser.save();
+
+  res.json(allUsers);
+});
+ * 
+ */
+
+// проверка пользователя на авторизацию
+app.get("/", async (req, res) => {
+  // поулчаем зашифрованный id сессии
+  const sessionIDEncripted = req.query.sessionID as string;
+
+  // const sessionExpires = req;
+
+  // console.clear();
+  // console.log("\n\n\n---------------------------------------------------\n\n\n");
+  // console.log(sessionExpires);
+
+  // если сессии не было
+  if (!sessionIDEncripted) {
     res.sendStatus(404);
     return;
   }
-  const user = JSON.parse(userBySessionID)["user"]["_json"];
-  res.send(JSON.stringify(user));
+
+  // пробуем расшифровать сессию и отправить пользователю данные
+  try {
+    const sessionIDEncoded = req.query.sessionID as string;
+    const sessionID = decriptString(sessionIDEncoded);
+    const userBySessionID = req.sessionStore["sessions"][sessionID];
+
+    if (!userBySessionID) {
+      res.sendStatus(404);
+      return;
+    }
+    const user = JSON.parse(userBySessionID)["passport"]["user"];
+    res.json(user);
+  } catch (e) {
+    res.sendStatus(500);
+  }
 });
 
+app.get("/user", (req, res) => {
+  createFolder("76561198198855077");
+});
+
+// когда авторизация закончилась, редирект на фронтент
 app.get(
   "/api/auth/steam/return",
   passport.authenticate("steam", { failureRedirect: "/" }),
-  (req, res) => {
+  async (req, res) => {
     const encriptedID = encriptString(req.sessionID);
     const redirectUrl = `${config.frontendServer}?sessionID=${encriptedID}`;
-    req.session.user = req.user;
+    const steamid = req.user["_json"].steamid;
+    const userInDb = await userModel.findOne({ "user.steamid": steamid });
+
+    // чуть редактируем сохраняемый объект, чтобы меньше лишнего было
+    req.session["passport"].user = userInDb ? userInDb.user : req.user["_json"];
+
+    // создать папку с steamid пользователя
+    /**
+     * в ней хранитятся файлы:
+     * user_profile_photo
+     * user_profile_bg_image <- banner img
+     * user_theme_bg_image <- bg pattern of site
+     */
+
+    if (!userInDb) {
+      const defaultPicsPath = `${BACKEND_IP}:${process.env.port}/users_data/default_pictures_user`;
+      req.user["_json"].userbgpattern = `${defaultPicsPath}/bg-pattern.png`;
+      req.user["_json"].userbanner = `${defaultPicsPath}/banner_default.webp`;
+      
+      const newUser = new userModel({
+        sessionID: encriptedID,
+        user: req.user["_json"],
+      });
+
+      await newUser.save();
+      //! user folder creating if wasn't found in db
+    }
+
     res.redirect(redirectUrl);
   }
 );

@@ -4,6 +4,9 @@ import session from "express-session";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import cookieParser from "cookie-parser";
 import bodyParser from "body-parser";
+import dotenv from "dotenv";
+
+dotenv.config({ path: "./.env.local" });
 
 const app = express();
 const secret = "MySecretFrase";
@@ -64,6 +67,12 @@ app.use(
     },
   })
 );
+
+let rootDirectory: string | string[] = __dirname.split("\\");
+rootDirectory.pop();
+rootDirectory = rootDirectory.join("\\");
+
+app.use(express.static(rootDirectory));
 
 export { app, passport };
 import "./config/passport";
