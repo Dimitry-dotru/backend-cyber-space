@@ -7,6 +7,18 @@ import fs from "fs";
 const MONGO_URL = process.env.mongoURL;
 const BACKEND_IP = "http://localhost";
 
+const defaultPicsPath = `${BACKEND_IP}:${process.env.port}/users_data/default_pictures_user`;
+
+const cyberspace_settings = {
+  public: {
+    userbgpattern: `${defaultPicsPath}/bg-pattern.png`,
+    userbanner: `${defaultPicsPath}/banner_default.webp`,
+  },
+  private: {
+    secret_field: "secret",
+  },
+};
+
 mongoose
   .connect(MONGO_URL)
   .then(() => {
@@ -37,8 +49,13 @@ const userSchema = new mongoose.Schema({
     timecreated: Number,
 
     // my fields:
-    userbanner: String,
-    userbgpattern: String,
+    cyberspace_settings: {
+      public: {
+        userbanner: String,
+        userbgpattern: String,
+      },
+      private: {},
+    },
   },
   sessionID: String,
 });
@@ -116,12 +133,6 @@ app.get("/", async (req, res) => {
   // поулчаем зашифрованный id сессии
   const sessionIDEncripted = req.query.sessionID as string;
 
-  // const sessionExpires = req;
-
-  // console.clear();
-  // console.log("\n\n\n---------------------------------------------------\n\n\n");
-  // console.log(sessionExpires);
-
   // если сессии не было
   if (!sessionIDEncripted) {
     res.sendStatus(404);
@@ -149,6 +160,38 @@ app.get("/user", (req, res) => {
   createFolder("76561198198855077");
 });
 
+// получаем пользователя с бд, если есть - отсылаем, нету - посылаем запрос на стим, модифицируем и отправляем на фронт
+app.get("/user/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+
+  const userInDb = await userModel.findOne({ "user.steamid": steamid });
+
+  if (!userInDb) {
+    // sending request to steam...
+    const data = await fetch(
+      `http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${process.env.apiKey}&steamids=${steamid}`
+    );
+    if (!data.ok) {
+      res.send(null);
+      return;
+    }
+    try {
+      const steamUser = (await data.json()).response.players[0];
+      steamUser.cyberspace_settings = { public: {} };
+      steamUser.cyberspace_settings.public = cyberspace_settings.public;
+
+      res.json(steamUser);
+      return;
+    } catch (e) {
+      console.error(e);
+      res.send(null);
+      return;
+    }
+  }
+
+  res.json(userInDb);
+});
+
 // когда авторизация закончилась, редирект на фронтент
 app.get(
   "/api/auth/steam/return",
@@ -171,10 +214,8 @@ app.get(
      */
 
     if (!userInDb) {
-      const defaultPicsPath = `${BACKEND_IP}:${process.env.port}/users_data/default_pictures_user`;
-      req.user["_json"].userbgpattern = `${defaultPicsPath}/bg-pattern.png`;
-      req.user["_json"].userbanner = `${defaultPicsPath}/banner_default.webp`;
-      
+      req.user["_json"].cyberspace_settings = cyberspace_settings;
+
       const newUser = new userModel({
         sessionID: encriptedID,
         user: req.user["_json"],
@@ -187,6 +228,29 @@ app.get(
     res.redirect(redirectUrl);
   }
 );
+
+app.get("/user-friends/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+
+  try {
+    const sessionIDEncoded = req.query.sessionID as string;
+    const sessionID = decriptString(sessionIDEncoded);
+
+    const data = await fetch(`https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${process.env.apiKey}&steamid=${steamid}&relationship=friend&access_token=${sessionID}`);
+
+    // console.log(data);
+
+    // console.log("\n\n\n\n");
+
+    const dataJson = await data.json();
+    
+    // console.log(dataJson);
+
+
+  } catch (e) {
+    res.sendStatus(500);
+  }
+});
 
 app.post("/logout", (req, res) => {
   try {
