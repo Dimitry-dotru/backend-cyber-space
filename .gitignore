@@ -5,3 +5,7 @@
 # env file
 .env
 .env.local
+
+# some user files
+user_data/*
+!user_data/default_pictures_user/
