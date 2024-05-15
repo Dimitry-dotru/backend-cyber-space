@@ -2,10 +2,23 @@ import { app, passport } from "../index";
 import { encriptString, decriptString } from "../utils";
 import config from "../config/index";
 import mongoose from "mongoose";
+import sharp from "sharp";
 import fs from "fs";
 
 const MONGO_URL = process.env.mongoURL;
 const BACKEND_IP = "http://localhost";
+
+const defaultPicsPath = `${BACKEND_IP}:${process.env.port}/users_data/default_pictures_user`;
+
+const cyberspace_settings = {
+  public: {
+    userbgpattern: `${defaultPicsPath}/bg-pattern.png`,
+    userbanner: `${defaultPicsPath}/banner_default.webp`,
+  },
+  private: {
+    secret_field: "secret",
+  },
+};
 
 mongoose
   .connect(MONGO_URL)
@@ -37,43 +50,16 @@ const userSchema = new mongoose.Schema({
     timecreated: Number,
 
     // my fields:
-    userbanner: String,
-    userbgpattern: String,
+    cyberspace_settings: {
+      public: {
+        userbanner: String,
+        userbgpattern: String,
+      },
+      private: {},
+    },
   },
   sessionID: String,
 });
-
-// создание папки пользователя, по steamid в users-data
-const createFolder = (steamid: string): void => {
-  fs.access("../users-data", (err) => {
-    if (err) {
-      console.log("No folder, creating it...");
-    } else {
-      console.log("We have folder!");
-    }
-  });
-  // console.log(__dirname);
-};
-
-//! поиск по своему полю какому-то
-/**
- *
- * userModel.findOne({ "user.steamid": steamIdToSearch })
-  .then((user) => {
-    if (user) {
-      console.log("Найден пользователь:", user);
-    } else {
-      console.log("Пользователь с указанным steamid не найден.");
-    }
-  })
-  .catch((error) => {
-    console.error("Ошибка при поиске пользователя:", error);
-  });
- * 
- * 
- * 
- * 
- */
 
 const userModel = mongoose.model("users", userSchema);
 
@@ -86,41 +72,10 @@ app.get(
   }
 );
 
-/**
- * ! пример того как можно сохранять пользователя, удаляя повторяющуюся запись
- * 
- * app.get("/users", async (req, res) => {
-  const allUsers = await userModel.find();
-
-  const newUser = new userModel({
-    connectHash: "38745tgf8yegrfwu4eorhifj",
-    steamid: "1234567890",
-  });
-
-  await allUsers.forEach(async (user) => {
-    if (user.connectHash === newUser.connectHash) {
-      console.log("deleting...");
-      await userModel.findByIdAndDelete(user._id);
-    }
-  })
-
-  await newUser.save();
-
-  res.json(allUsers);
-});
- * 
- */
-
 // проверка пользователя на авторизацию
 app.get("/", async (req, res) => {
   // поулчаем зашифрованный id сессии
   const sessionIDEncripted = req.query.sessionID as string;
-
-  // const sessionExpires = req;
-
-  // console.clear();
-  // console.log("\n\n\n---------------------------------------------------\n\n\n");
-  // console.log(sessionExpires);
 
   // если сессии не было
   if (!sessionIDEncripted) {
@@ -145,8 +100,36 @@ app.get("/", async (req, res) => {
   }
 });
 
-app.get("/user", (req, res) => {
-  createFolder("76561198198855077");
+// получаем пользователя с бд, если есть - отсылаем, нету - посылаем запрос на стим, модифицируем и отправляем на фронт
+app.get("/user/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+
+  const userInDb = await userModel.findOne({ "user.steamid": steamid });
+
+  if (!userInDb) {
+    // sending request to steam...
+    const data = await fetch(
+      `http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${process.env.apiKey}&steamids=${steamid}`
+    );
+    if (!data.ok) {
+      res.send(null);
+      return;
+    }
+    try {
+      const steamUser = (await data.json()).response.players[0];
+      steamUser.cyberspace_settings = { public: {} };
+      steamUser.cyberspace_settings.public = cyberspace_settings.public;
+
+      res.json(steamUser);
+      return;
+    } catch (e) {
+      console.error(e);
+      res.send(null);
+      return;
+    }
+  }
+
+  res.json(userInDb);
 });
 
 // когда авторизация закончилась, редирект на фронтент
@@ -165,16 +148,14 @@ app.get(
     // создать папку с steamid пользователя
     /**
      * в ней хранитятся файлы:
-     * user_profile_photo
+     * user_profile_photo (разного качества)
      * user_profile_bg_image <- banner img
      * user_theme_bg_image <- bg pattern of site
      */
 
     if (!userInDb) {
-      const defaultPicsPath = `${BACKEND_IP}:${process.env.port}/users_data/default_pictures_user`;
-      req.user["_json"].userbgpattern = `${defaultPicsPath}/bg-pattern.png`;
-      req.user["_json"].userbanner = `${defaultPicsPath}/banner_default.webp`;
-      
+      req.user["_json"].cyberspace_settings = cyberspace_settings;
+
       const newUser = new userModel({
         sessionID: encriptedID,
         user: req.user["_json"],
@@ -188,8 +169,55 @@ app.get(
   }
 );
 
+// смена аватара
+app.post("/change-avatar/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+
+  try {
+    if (!req.body.image) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing image",
+      });
+    }
+
+    // удаляем те части в закодированном изображении, которые не могут обрабатываться base64
+    req.body.image = req.body.image.replace(/^data:image\/\w+;base64,/, "");
+    const imageBuffer = Buffer.from(req.body.image, "base64");
+
+    if (!fs.existsSync(`users_data/${steamid}`)) {
+      fs.mkdirSync(`users_data/${steamid}`, { recursive: true });
+    }
+
+    const outputPath = `users_data/${steamid}/user_profile_photo.webp`;
+    fs.writeFileSync(outputPath, imageBuffer);
+
+    // Сжимаем изображение в 50% качества и сохраняем его
+    const compressedImagePath = `users_data/${steamid}/user_profile_photo_medium.webp`;
+    await sharp(imageBuffer)
+      .webp({ quality: 30 }) // Устанавливаем качество изображения на 50%
+      .toFile(compressedImagePath);
+
+    const userInDb = await userModel.findOne({ "user.steamid": steamid });
+
+    if (userInDb) {
+      userInDb.user.avatar = `${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
+      userInDb.user.avatarfull = `${BACKEND_IP}:${process.env.port}/` + outputPath;
+      userInDb.user.avatarmedium =`${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
+
+      await userInDb.save();
+    }
+
+    res.status(200).json({ success: true });
+  } catch (e) {
+    console.error(e);
+  }
+});
+
+// разлогинивание
 app.post("/logout", (req, res) => {
   try {
+    // попытка удаления id сессии из текущих сессий
     const sessionID = decriptString(req.query.sessionID as string);
     delete req.sessionStore["sessions"][sessionID];
     res.sendStatus(200);
