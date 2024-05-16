@@ -63,15 +63,6 @@ const userSchema = new mongoose.Schema({
 
 const userModel = mongoose.model("users", userSchema);
 
-// тут авторизация в стим
-app.get(
-  "/api/auth/steam",
-  passport.authenticate("steam", { failureRedirect: "/" }),
-  function (req, res) {
-    res.redirect(config.frontendServer);
-  }
-);
-
 // проверка пользователя на авторизацию
 app.get("/", async (req, res) => {
   // поулчаем зашифрованный id сессии
@@ -132,6 +123,7 @@ app.get("/user/:steamid", async (req, res) => {
   res.json(userInDb);
 });
 
+//! STEAM AUTH
 // когда авторизация закончилась, редирект на фронтент
 app.get(
   "/api/auth/steam/return",
@@ -149,6 +141,7 @@ app.get(
     /**
      * в ней хранитятся файлы:
      * user_profile_photo (разного качества)
+     * user_profile_photo_medium - сжатый вариант
      * user_profile_bg_image <- banner img
      * user_theme_bg_image <- bg pattern of site
      */
@@ -168,10 +161,27 @@ app.get(
     res.redirect(redirectUrl);
   }
 );
+// тут авторизация в стим
+app.get(
+  "/api/auth/steam",
+  passport.authenticate("steam", { failureRedirect: "/" }),
+  function (req, res) {
+    // res.redirect(config.frontendServer);
+  }
+);
 
+//! AVATAR
 // смена аватара
 app.post("/change-avatar/:steamid", async (req, res) => {
   const steamid = req.params.steamid;
+  const sessionIDEncripted = req.query.sessionID as string;
+
+  if (!sessionIDEncripted) {
+    return res.sendStatus(404).json({
+      message: "Missing session id",
+      success: false,
+    });
+  }
 
   try {
     if (!req.body.image) {
@@ -180,9 +190,8 @@ app.post("/change-avatar/:steamid", async (req, res) => {
         message: "Missing image",
       });
     }
-
     // удаляем те части в закодированном изображении, которые не могут обрабатываться base64
-    req.body.image = req.body.image.replace(/^data:image\/\w+;base64,/, "");
+    // req.body.image = req.body.image.replace(/^data:image\/\w+;base64,/, "");
     const imageBuffer = Buffer.from(req.body.image, "base64");
 
     if (!fs.existsSync(`users_data/${steamid}`)) {
@@ -200,10 +209,40 @@ app.post("/change-avatar/:steamid", async (req, res) => {
 
     const userInDb = await userModel.findOne({ "user.steamid": steamid });
 
+    // пробуем расшифровать сессию и перезаписать локальные данные пользователя
+    try {
+      const sessionID = decriptString(sessionIDEncripted);
+      const userBySessionID = req.sessionStore["sessions"][sessionID];
+
+      if (!userBySessionID) {
+        return res.sendStatus(404);
+      }
+
+      const sessionData = JSON.parse(userBySessionID);
+
+      // перезаписываем в локальной сессии пути
+      sessionData["passport"]["user"].avatar =
+        `${BACKEND_IP}:${process.env.port}/` + outputPath;
+      sessionData["passport"]["user"].avatarfull =
+        `${BACKEND_IP}:${process.env.port}/` + outputPath;
+      sessionData["passport"]["user"].avatarmedium =
+        `${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
+
+      req.sessionStore["sessions"][sessionID] = JSON.stringify(sessionData);
+    } catch (e) {
+      return res.status(404).json({
+        message: "User session ended",
+        success: false,
+      });
+    }
+
     if (userInDb) {
-      userInDb.user.avatar = `${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
-      userInDb.user.avatarfull = `${BACKEND_IP}:${process.env.port}/` + outputPath;
-      userInDb.user.avatarmedium =`${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
+      userInDb.user.avatar =
+        `${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
+      userInDb.user.avatarfull =
+        `${BACKEND_IP}:${process.env.port}/` + outputPath;
+      userInDb.user.avatarmedium =
+        `${BACKEND_IP}:${process.env.port}/` + compressedImagePath;
 
       await userInDb.save();
     }
@@ -211,6 +250,82 @@ app.post("/change-avatar/:steamid", async (req, res) => {
     res.status(200).json({ success: true });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ success: false, message: e });
+  }
+});
+// возвращение аватара который в стим
+app.post("/restore-avatar/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+  const userInDb = await userModel.findOne({ "user.steamid": steamid });
+  // поулчаем зашифрованный id сессии
+  const sessionIDEncripted = req.query.sessionID as string;
+
+  // если сессии не было
+  if (!sessionIDEncripted) {
+    return res.sendStatus(404).json({
+      message: "Missing session ID in query",
+      success: false,
+    });
+  }
+
+  if (!userInDb) {
+    return res.status(404).json({
+      success: false,
+      message: "Error to found user in db!",
+    });
+  }
+  // sending request to steam...
+  const data = await fetch(
+    `http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${process.env.apiKey}&steamids=${steamid}`
+  );
+  if (!data.ok) {
+    return res.send(null).json({
+      success: false,
+      message: "Error to fetch steam user!",
+    });
+  }
+
+  // изменяем данные в базе данных и сохраняем и работаем с локальной сессией
+  try {
+    const steamUser = (await data.json()).response.players[0];
+
+    // пробуем расшифровать сессию и перезаписать локальные данные пользователя
+    try {
+      const sessionID = decriptString(sessionIDEncripted);
+      const userBySessionID = req.sessionStore["sessions"][sessionID];
+
+      if (!userBySessionID) {
+        return res.sendStatus(404);
+      }
+
+      const sessionData = JSON.parse(userBySessionID);
+
+      sessionData["passport"]["user"].avatar = steamUser.avatar;
+      sessionData["passport"]["user"].avatarfull = steamUser.avatarfull;
+      sessionData["passport"]["user"].avatarmedium = steamUser.avatarmedium;
+
+      req.sessionStore["sessions"][sessionID] = JSON.stringify(sessionData);
+
+      console.log(req.sessionStore["sessions"]);
+    } catch (e) {
+      return res.status(404).json({
+        message: "User session ended",
+        success: false,
+      });
+      // res.sendStatus(500);
+    }
+
+    userInDb.user.avatar = steamUser.avatar;
+    userInDb.user.avatarfull = steamUser.avatarfull;
+    userInDb.user.avatarmedium = steamUser.avatarmedium;
+
+    await userInDb.save();
+    return res.status(200).json({
+      success: true,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.send(null);
   }
 });
 
