@@ -306,7 +306,6 @@ app.post("/restore-avatar/:steamid", async (req, res) => {
 
       req.sessionStore["sessions"][sessionID] = JSON.stringify(sessionData);
 
-      console.log(req.sessionStore["sessions"]);
     } catch (e) {
       return res.status(404).json({
         message: "User session ended",
