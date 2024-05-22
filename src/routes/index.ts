@@ -14,6 +14,8 @@ const cyberspace_settings = {
   public: {
     userbgpattern: `${defaultPicsPath}/bg-pattern.png`,
     userbanner: `${defaultPicsPath}/banner_default.webp`,
+    userbgcolor:
+      "linear-gradient( 180deg, rgba(24, 27, 52, 1) 0%, rgba(24, 27, 52, 1) 20%, rgba(49, 32, 64, 1) 100% )",
   },
   private: {
     secret_field: "secret",
@@ -54,6 +56,7 @@ const userSchema = new mongoose.Schema({
       public: {
         userbanner: String,
         userbgpattern: String,
+        userbgcolor: String,
       },
       private: {},
     },
