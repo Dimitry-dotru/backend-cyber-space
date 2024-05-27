@@ -67,6 +67,7 @@ app.use(
     },
   })
 );
+app.use(bodyParser.json({ limit: "100mb" }));
 
 let rootDirectory: string | string[] = __dirname.split("\\");
 rootDirectory.pop();

@@ -2,6 +2,7 @@ import { app, passport } from "../index";
 import { encriptString, decriptString } from "../utils";
 import config from "../config/index";
 import mongoose from "mongoose";
+import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
 import fs from "fs";
 
@@ -63,8 +64,32 @@ const userSchema = new mongoose.Schema({
   },
   sessionID: String,
 });
-
 const userModel = mongoose.model("users", userSchema);
+
+const postsSchema = new mongoose.Schema({
+  steamid: String,
+  personaname: String,
+  postcreated: String,
+  postbody: String,
+  postid: String,
+  postimages: [String],
+  likes: [
+    {
+      steamid: String,
+      personaname: String,
+      likedat: String,
+    },
+  ],
+  comments: [
+    {
+      steamid: String,
+      personaname: String,
+      content: String,
+      commentdate: String,
+    },
+  ],
+});
+const postsModel = mongoose.model("posts", postsSchema);
 
 // проверка пользователя на авторизацию
 app.get("/", async (req, res) => {
@@ -172,6 +197,18 @@ app.get(
     // res.redirect(config.frontendServer);
   }
 );
+// разлогинивание
+app.post("/logout", (req, res) => {
+  try {
+    // попытка удаления id сессии из текущих сессий
+    const sessionID = decriptString(req.query.sessionID as string);
+    delete req.sessionStore["sessions"][sessionID];
+    res.sendStatus(200);
+  } catch (e) {
+    res.statusMessage = "Error deleting session!";
+    res.sendStatus(400);
+  }
+});
 
 //! AVATAR
 // смена аватара
@@ -308,7 +345,6 @@ app.post("/restore-avatar/:steamid", async (req, res) => {
       sessionData["passport"]["user"].avatarmedium = steamUser.avatarmedium;
 
       req.sessionStore["sessions"][sessionID] = JSON.stringify(sessionData);
-
     } catch (e) {
       return res.status(404).json({
         message: "User session ended",
@@ -331,15 +367,86 @@ app.post("/restore-avatar/:steamid", async (req, res) => {
   }
 });
 
-// разлогинивание
-app.post("/logout", (req, res) => {
+//! POSTS
+app.get("/posts/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+  if (!steamid)
+    return res.sendStatus(400).json({
+      message: "Request body has no steamid",
+      success: false,
+    });
+
   try {
-    // попытка удаления id сессии из текущих сессий
-    const sessionID = decriptString(req.query.sessionID as string);
-    delete req.sessionStore["sessions"][sessionID];
-    res.sendStatus(200);
+    // getting all posts with specified steamid
+    const allPosts = await postsModel.find({ steamid });
+    const modifiedPosts = [];
+
+    // modify posts info, erasing likes and comments data, replacing it with its amount
+    allPosts.forEach((el, idx) => {
+      const tempObj = {
+        steamid: el.steamid,
+        personaname: el.personaname,
+        postcreated: el.postcreated,
+        postbody: el.postbody,
+        likes: el.likes,
+        postimages: el.postimages,
+        comments: el.comments.length,
+      };
+      modifiedPosts.push(tempObj);
+    });
+
+    return res.json(modifiedPosts);
   } catch (e) {
-    res.statusMessage = "Error deleting session!";
-    res.sendStatus(400);
+    console.error(e);
+    res.sendStatus(500).json({
+      message: "Error with db",
+      success: false,
+    });
   }
+});
+
+app.post("/posts/:steamid", async (req, res) => {
+  const { steamid } = req.params;
+
+  if (!steamid)
+    return res.sendStatus(400).json({
+      message: "Request body has no steamid",
+      success: false,
+    });
+
+    try {
+      const userInDb = await userModel.findOne({ "user.steamid": steamid });
+    
+      if (!userInDb) {
+        return res.sendStatus(404).json({
+          message: "Can't find user in db",
+          success: false,
+        });
+      }
+      const { postContent, postImages } = req.body;
+      const randomPostId = uuidv4();
+    
+      const postObject = new postsModel({
+        steamid,
+        personaname: userInDb.user.personaname,
+        postcreated: Date.now(),
+        postbody: postContent,
+        postimages: postImages ? postImages : [],
+        likes: [],
+        comments: [],
+        postid: randomPostId
+      });
+    
+      await postObject.save();
+
+      return res.sendStatus(200);
+    }
+
+    catch(e) {
+      console.error(e);
+      return res.sendStatus(500).json({
+        message: e,
+        success: false
+      })
+    }
 });

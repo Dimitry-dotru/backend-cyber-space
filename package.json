@@ -30,7 +30,8 @@
     "mysql2": "^3.9.6",
     "passport": "^0.7.0",
     "passport-steam": "^1.0.18",
-    "sharp": "^0.33.3"
+    "sharp": "^0.33.3",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/mongodb": "^4.0.7",
