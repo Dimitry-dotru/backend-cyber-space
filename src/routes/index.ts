@@ -388,6 +388,7 @@ app.get("/posts/:steamid", async (req, res) => {
         personaname: el.personaname,
         postcreated: el.postcreated,
         postbody: el.postbody,
+        postid: el.postid,
         likes: el.likes,
         postimages: el.postimages,
         comments: el.comments.length,
@@ -414,39 +415,96 @@ app.post("/posts/:steamid", async (req, res) => {
       success: false,
     });
 
-    try {
-      const userInDb = await userModel.findOne({ "user.steamid": steamid });
-    
-      if (!userInDb) {
-        return res.sendStatus(404).json({
-          message: "Can't find user in db",
-          success: false,
-        });
-      }
-      const { postContent, postImages } = req.body;
-      const randomPostId = uuidv4();
-    
-      const postObject = new postsModel({
-        steamid,
-        personaname: userInDb.user.personaname,
-        postcreated: Date.now(),
-        postbody: postContent,
-        postimages: postImages ? postImages : [],
-        likes: [],
-        comments: [],
-        postid: randomPostId
+  try {
+    const userInDb = await userModel.findOne({ "user.steamid": steamid });
+
+    if (!userInDb) {
+      return res.sendStatus(404).json({
+        message: "Can't find user in db",
+        success: false,
       });
-    
-      await postObject.save();
+    }
+    const { postContent, postImages } = req.body;
+    const randomPostId = uuidv4();
 
-      return res.sendStatus(200);
+    const postObject = new postsModel({
+      steamid,
+      personaname: userInDb.user.personaname,
+      postcreated: Date.now(),
+      postbody: postContent,
+      postimages: postImages ? postImages : [],
+      likes: [],
+      comments: [],
+      postid: randomPostId,
+    });
+
+    await postObject.save();
+
+    return res.sendStatus(200);
+  } catch (e) {
+    console.error(e);
+    return res.sendStatus(500).json({
+      message: e,
+      success: false,
+    });
+  }
+});
+
+app.post("/posts/like/:postid", async (req, res) => {
+  const postid = req.params.postid;
+  const sessionIDEncripted = req.query.sessionID as string;
+
+  if (!sessionIDEncripted) {
+    return res.sendStatus(404).json({
+      message: "Missing session id",
+      success: false,
+    });
+  }
+
+  if (!postid) {
+    return res.sendStatus(400).json({
+      message: "incorrect postid",
+      success: false,
+    });
+  }
+
+  try {
+    const sessionIDDecoded = decriptString(sessionIDEncripted);
+    //! сделать проверку в локальном хранилище
+
+    if (!sessionIDDecoded) {
+      return res.sendStatus(400).json({
+        message: "Error to decrypt sessionID",
+        success: false,
+      });
     }
 
-    catch(e) {
-      console.error(e);
-      return res.sendStatus(500).json({
-        message: e,
-        success: false
-      })
+    const post = await postsModel.findOne({ postid });
+    if (!post) {
+      return res.sendStatus(404).json({
+        message: "Post with id: " + postid + " not found",
+        success: false,
+      });
     }
+
+    const whoLiked = req.body;
+
+    const whoLikedIndex = post.likes.findIndex((el) => el.steamid === whoLiked.steamid);
+
+    if (whoLikedIndex === -1) {
+      post.likes.push(whoLiked);
+    }
+    else post.likes.splice(whoLikedIndex, 1);
+
+
+    await post.save();
+
+    return res.json(post.likes);
+  } catch (e) {
+    console.error(e);
+    return res.sendStatus(500).json({
+      message: e,
+      success: false,
+    });
+  }
 });
