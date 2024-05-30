@@ -151,6 +151,92 @@ app.get("/user/:steamid", async (req, res) => {
   res.json(userInDb);
 });
 
+app.get("/user/friends/:steamid", async (req, res) => {
+  const steamid = req.params.steamid;
+  const sessionID = req.query.sessionID as string;
+
+  if (!sessionID)
+    return res.status(400).json({
+      message: "No sessionID",
+      success: false,
+    });
+
+  try {
+    const decriptedSessionID = decriptString(sessionID);
+
+    if (!decriptedSessionID)
+      return res.send(400).json({
+        message: "Unable to decript session id",
+        success: false,
+      });
+
+    const friendsData = await fetch(
+      `http://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${process.env.apiKey}&steamid=${steamid}&relationship=friend`
+    );
+
+    if (!friendsData.ok)
+      return res.send(500).json({
+        message: "Unable to get friends list",
+      });
+    const responseObj = await friendsData.json();
+
+    if (!responseObj.friendslist) return res.sendStatus(204);
+
+    const friendList = responseObj.friendslist.friends;
+
+    const pairsAmnt = Math.ceil(friendList.length / 100);
+    const allUsers = [];
+
+    for (let i = 0; i < pairsAmnt; i++) {
+      const steamidsFromList = friendList
+        .slice(i * 100, i * 100 + 100)
+        .map((el) => el.steamid);
+
+      const data = await fetch(
+        `http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${
+          process.env.apiKey
+        }&steamids=${steamidsFromList.join(",")}`
+      );
+
+      if (!data.ok) {
+        return res.sendStatus(500).json(data);
+      }
+
+      const usersArray = (await data.json()).response.players;
+      const usersInDb = await userModel.find({
+        steamid: { $in: steamidsFromList.map((el) => el.steamid) },
+      });
+
+      usersArray.forEach((el, idx) => {
+        const foundedUser = usersInDb.find((user) => user.user.steamid === el.steamid);
+
+
+        const friendObj = {
+          friend_since: friendList[idx].friend_since,
+          relationship: friendList[idx].relationship,
+          steamid: el.steamid,
+          registered: !!foundedUser,
+          avatarfull: !!foundedUser ? foundedUser.user.avatarfull : el.avatarfull,
+          avatarmedium: !!foundedUser
+            ? foundedUser.user.avatarmedium
+            : el.avatarmedium,
+          personaname: el.personaname,
+        };
+
+        allUsers.push(friendObj);
+      });
+    }
+
+    return res.json(allUsers);
+  } catch (e) {
+    console.error(e);
+    return res.sendStatus(500).json({
+      message: e,
+      success: false,
+    });
+  }
+});
+
 //! STEAM AUTH
 // когда авторизация закончилась, редирект на фронтент
 app.get(
@@ -183,7 +269,6 @@ app.get(
       });
 
       await newUser.save();
-      //! user folder creating if wasn't found in db
     }
 
     res.redirect(redirectUrl);
@@ -489,13 +574,13 @@ app.post("/posts/like/:postid", async (req, res) => {
 
     const whoLiked = req.body;
 
-    const whoLikedIndex = post.likes.findIndex((el) => el.steamid === whoLiked.steamid);
+    const whoLikedIndex = post.likes.findIndex(
+      (el) => el.steamid === whoLiked.steamid
+    );
 
     if (whoLikedIndex === -1) {
       post.likes.push(whoLiked);
-    }
-    else post.likes.splice(whoLikedIndex, 1);
-
+    } else post.likes.splice(whoLikedIndex, 1);
 
     await post.save();
 
@@ -503,6 +588,41 @@ app.post("/posts/like/:postid", async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.sendStatus(500).json({
+      message: e,
+      success: false,
+    });
+  }
+});
+
+app.delete("/posts/:postid", async (req, res) => {
+  const postid = req.params.postid;
+  const sessionIDEncripted = req.query.sessionID as string;
+
+  if (!sessionIDEncripted) {
+    return res.status(404).json({
+      message: "Missing session id",
+      success: false,
+    });
+  }
+
+  try {
+    const decriptedSessionId = decriptString(sessionIDEncripted);
+
+    const postToDelete = await postsModel.findOne({ postid });
+
+    if (!postToDelete) {
+      return res.status(404).json({
+        message: `Can't delete post with id ${postid}, not found`,
+        success: false,
+      });
+    }
+
+    await postToDelete.deleteOne();
+
+    return res.sendStatus(200);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
       message: e,
       success: false,
     });
