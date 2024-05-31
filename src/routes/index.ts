@@ -208,15 +208,18 @@ app.get("/user/friends/:steamid", async (req, res) => {
       });
 
       usersArray.forEach((el, idx) => {
-        const foundedUser = usersInDb.find((user) => user.user.steamid === el.steamid);
-
+        const foundedUser = usersInDb.find(
+          (user) => user.user.steamid === el.steamid
+        );
 
         const friendObj = {
           friend_since: friendList[idx].friend_since,
           relationship: friendList[idx].relationship,
           steamid: el.steamid,
           registered: !!foundedUser,
-          avatarfull: !!foundedUser ? foundedUser.user.avatarfull : el.avatarfull,
+          avatarfull: !!foundedUser
+            ? foundedUser.user.avatarfull
+            : el.avatarfull,
           avatarmedium: !!foundedUser
             ? foundedUser.user.avatarmedium
             : el.avatarmedium,
@@ -234,6 +237,46 @@ app.get("/user/friends/:steamid", async (req, res) => {
       message: e,
       success: false,
     });
+  }
+});
+
+// возвращаем всех пользователей у которых есть совпадение по имени\steamid
+app.get("/user/:steamid/:username", async (req, res) => {
+  const username = req.params.username;
+  const steamid = req.params.steamid;
+  const sessionID = req.query.sessionID as string;
+
+
+  if (!sessionID) return res.status(404).send("Session id not found");
+
+  try {
+    const sessionIDDecoded = decriptString(sessionID);
+    const allUsers = await userModel.find();
+
+    const allMatches = allUsers.filter((el) => {
+      if (el.user.personaname.toLowerCase().trim().includes(username.toLowerCase())) {
+        if (el.user.steamid === steamid) return false;
+        return true;
+      }
+    });
+
+    if (!allMatches.length) return res.json([]);
+
+    const tempArr = [];
+    allMatches.forEach((el) => {
+      const tempObj = {
+        steamid: el.user.steamid,
+        avatarmedium: el.user.avatarmedium,
+        personaname: el.user.personaname
+      };
+
+      tempArr.push(tempObj);
+    });
+
+    return res.json(tempArr);
+  } catch (e) {
+    console.error(e);
+    return res.status(500).send(e);
   }
 });
 
