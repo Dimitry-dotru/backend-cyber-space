@@ -3,6 +3,7 @@ import { encriptString, decriptString } from "../utils";
 import config from "../config/index";
 import mongoose from "mongoose";
 import { v4 as uuidv4 } from "uuid";
+import multer from "multer";
 import sharp from "sharp";
 import fs from "fs";
 
@@ -10,6 +11,52 @@ const MONGO_URL = process.env.mongoURL;
 const BACKEND_IP = "http://localhost";
 
 const defaultPicsPath = `${BACKEND_IP}:${process.env.port}/users_data/default_pictures_user`;
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const steamid = file.originalname.split("-")[0];
+    const uploadPath = "users_data/" + steamid;
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname.split("-")[1]);
+  },
+});
+
+const upload = multer({ storage });
+
+app.post("/change-banner", upload.single("image"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
+  }
+  try {
+    const decriptedSessionID = decriptString(req.query.sessionID as string);
+    const steamid = req.body.steamid;
+    const userBySessionID = req.sessionStore["sessions"][decriptedSessionID];
+
+    if (!userBySessionID) return res.status(403).send("Need to authorize");
+
+    const parsedUser = JSON.parse(userBySessionID);
+
+    parsedUser.passport.user.cyberspace_settings.public.userbanner = `http://localhost:7069/users_data/${steamid}/user_profile_banner_image.webp`;
+    req.sessionStore["sessions"][decriptedSessionID] =
+      JSON.stringify(parsedUser);
+
+    const userInDB = await userModel.findOne({ "user.steamid": steamid });
+
+    if (!userInDB) return res.status(404).send("Can't found user in db!");
+
+    userInDB.user.cyberspace_settings.public.userbanner = `http://localhost:7069/users_data/${steamid}/user_profile_banner_image.webp`;
+    await userInDB.save();
+
+    return res.sendStatus(200);
+  } catch (e) {
+    return res.status(500).send(e);
+  }
+});
 
 const cyberspace_settings = {
   public: {
@@ -118,7 +165,6 @@ app.get("/", async (req, res) => {
     res.sendStatus(500);
   }
 });
-
 // получаем пользователя с бд, если есть - отсылаем, нету - посылаем запрос на стим, модифицируем и отправляем на фронт
 app.get("/user/:steamid", async (req, res) => {
   const steamid = req.params.steamid;
@@ -150,7 +196,6 @@ app.get("/user/:steamid", async (req, res) => {
 
   res.json(userInDb);
 });
-
 app.get("/user/friends/:steamid", async (req, res) => {
   const steamid = req.params.steamid;
   const sessionID = req.query.sessionID as string;
@@ -239,13 +284,11 @@ app.get("/user/friends/:steamid", async (req, res) => {
     });
   }
 });
-
 // возвращаем всех пользователей у которых есть совпадение по имени\steamid
 app.get("/user/:steamid/:username", async (req, res) => {
   const username = req.params.username;
   const steamid = req.params.steamid;
   const sessionID = req.query.sessionID as string;
-
 
   if (!sessionID) return res.status(404).send("Session id not found");
 
@@ -254,7 +297,12 @@ app.get("/user/:steamid/:username", async (req, res) => {
     const allUsers = await userModel.find();
 
     const allMatches = allUsers.filter((el) => {
-      if (el.user.personaname.toLowerCase().trim().includes(username.toLowerCase())) {
+      if (
+        el.user.personaname
+          .toLowerCase()
+          .trim()
+          .includes(username.toLowerCase())
+      ) {
         if (el.user.steamid === steamid) return false;
         return true;
       }
@@ -267,7 +315,7 @@ app.get("/user/:steamid/:username", async (req, res) => {
       const tempObj = {
         steamid: el.user.steamid,
         avatarmedium: el.user.avatarmedium,
-        personaname: el.user.personaname
+        personaname: el.user.personaname,
       };
 
       tempArr.push(tempObj);
@@ -276,6 +324,38 @@ app.get("/user/:steamid/:username", async (req, res) => {
     return res.json(tempArr);
   } catch (e) {
     console.error(e);
+    return res.status(500).send(e);
+  }
+});
+
+// меняем имя пользователя
+app.post("/username/:newName", async (req, res) => {
+  const sessionID = req.query.sessionID as string;
+  if (!sessionID) return res.status(404).send("Session id not found");
+  const newName = req.params.newName;
+
+  try {
+    const decriptedSessionID = decriptString(sessionID);
+    const userBySessionID = req.sessionStore["sessions"][decriptedSessionID];
+
+    if (!userBySessionID) return res.status(403).send("Need to authorize");
+
+    const parsedUser = JSON.parse(userBySessionID);
+
+    parsedUser.passport.user.personaname = newName;
+    req.sessionStore["sessions"][decriptedSessionID] =
+      JSON.stringify(parsedUser);
+    const userInDB = await userModel.findOne({
+      "user.steamid": parsedUser.passport.user.steamid,
+    });
+
+    if (!userInDB) return res.status(404).send("User wasn't found in db");
+
+    userInDB.user.personaname = newName;
+    await userInDB.save();
+
+    return res.sendStatus(200);
+  } catch (e) {
     return res.status(500).send(e);
   }
 });
@@ -492,6 +572,61 @@ app.post("/restore-avatar/:steamid", async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.send(null);
+  }
+});
+
+//! BG PATTERNS
+app.get("/bg-patterns", async (req, res) => {
+  const directoryPath = "users_data/bg_patterns";
+
+  fs.readdir(directoryPath, (err, files) => {
+    if (err) {
+      return res.status(500).send("Unable to scan directory: " + err);
+    }
+
+    const tempArr = [];
+    files.forEach((el) => {
+      const fullPath = `${BACKEND_IP}:${process.env.port}/users_data/bg_patterns/${el}`;
+      tempArr.push(fullPath);
+    });
+
+    return res.json(tempArr);
+  });
+});
+
+app.post("/bg-patterns", async (req, res) => {
+  const sessionID = req.query.sessionID as string;
+
+  if (!sessionID) return res.status(400).send("No session id");
+
+  try {
+    const decriptedSessionID = decriptString(sessionID);
+    const userBySessionID = req.sessionStore["sessions"][decriptedSessionID];
+
+    if (!userBySessionID) return res.status(403).send("Need to authorize");
+
+    const url = req.query.url as string;
+
+    if (!url) return res.status(404).send("No url");
+
+    const parsedUser = JSON.parse(userBySessionID);
+    const steamid = parsedUser.passport.user.steamid;
+
+    parsedUser.passport.user.cyberspace_settings.public.userbgpattern = url;
+    req.sessionStore["sessions"][decriptedSessionID] =
+      JSON.stringify(parsedUser);
+
+    const userInDB = await userModel.findOne({ "user.steamid": steamid });
+
+    if (!userInDB) return res.status(404).send("Can't found user in db!");
+
+    userInDB.user.cyberspace_settings.public.userbgpattern = url;
+    await userInDB.save();
+
+    return res.sendStatus(200);
+  } catch (e) {
+    console.error(e);
+    return res.status(500).send(e);
   }
 });
 
