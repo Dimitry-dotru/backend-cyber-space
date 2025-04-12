@@ -5,6 +5,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 import cookieParser from "cookie-parser";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
+import path from "path";
 
 dotenv.config({ path: "./.env.local" });
 
@@ -67,11 +68,7 @@ app.use(
     },
   })
 );
-
-let rootDirectory: string | string[] = __dirname.split("\\");
-rootDirectory.pop();
-rootDirectory = rootDirectory.join("\\");
-
+const rootDirectory = path.join(__dirname, "..");
 app.use(express.static(rootDirectory));
 
 export { app, passport };

@@ -41,7 +41,7 @@ app.post("/change-banner", upload.single("image"), async (req, res) => {
 
     const parsedUser = JSON.parse(userBySessionID);
 
-    parsedUser.passport.user.cyberspace_settings.public.userbanner = `http://localhost:7069/users_data/${steamid}/user_profile_banner_image.webp`;
+    parsedUser.passport.user.cyberspace_settings.public.userbanner = `${BACKEND_IP}:${process.env.port}/users_data/${steamid}/user_profile_banner_image.webp`;
     req.sessionStore["sessions"][decriptedSessionID] =
       JSON.stringify(parsedUser);
 
@@ -49,7 +49,7 @@ app.post("/change-banner", upload.single("image"), async (req, res) => {
 
     if (!userInDB) return res.status(404).send("Can't found user in db!");
 
-    userInDB.user.cyberspace_settings.public.userbanner = `http://localhost:7069/users_data/${steamid}/user_profile_banner_image.webp`;
+    userInDB.user.cyberspace_settings.public.userbanner = `${BACKEND_IP}:${process.env.port}/users_data/${steamid}/user_profile_banner_image.webp`;
     await userInDB.save();
 
     return res.sendStatus(200);
